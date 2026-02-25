@@ -1,186 +1,229 @@
 """
-Vietlott Data Scraper - Thu thập dữ liệu lịch sử Vietlott
-Hỗ trợ: Power 6/55, Mega 6/45, Max 3D
+Vietlott Data Scraper - Thu thập dữ liệu THẬT từ vietvudanh/vietlott-data
+Repo: https://github.com/vietvudanh/vietlott-data (cập nhật hàng ngày)
+Hỗ trợ: Power 6/55, Mega 6/45, Max 3D, Max 3D+, Keno
 """
-import requests
 import json
 import os
-import time
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
+import subprocess
+import sys
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept': 'application/json, text/html',
-    'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
+REPO_URL = 'https://github.com/vietvudanh/vietlott-data.git'
+REPO_DIR = '/tmp/vietlott-data'
+
+# Mapping from repo filenames to our game types
+GAME_FILES = {
+    'power655':  'power655.jsonl',
+    'mega645':   'power645.jsonl',
+    'max3d':     '3d.jsonl',
+    'max3dplus': '3d_pro.jsonl',
+    'keno':      'keno.jsonl',
+}
+
+GAME_CONFIG = {
+    'power655': {
+        'name': 'Power 6/55',
+        'max_number': 55,
+        'pick_count': 6,
+        'has_power': True,
+        'digit_game': False,
+    },
+    'mega645': {
+        'name': 'Mega 6/45',
+        'max_number': 45,
+        'pick_count': 6,
+        'has_power': False,
+        'digit_game': False,
+    },
+    'max3d': {
+        'name': 'Max 3D',
+        'max_number': 999,
+        'pick_count': 3,
+        'has_power': False,
+        'digit_game': True,
+    },
+    'max3dplus': {
+        'name': 'Max 3D+',
+        'max_number': 999,
+        'pick_count': 6,
+        'has_power': False,
+        'digit_game': True,
+    },
+    'keno': {
+        'name': 'Keno',
+        'max_number': 80,
+        'pick_count': 20,
+        'has_power': False,
+        'digit_game': False,
+    },
 }
 
 
-def scrape_vietlott_api(game_type='power655', pages=50):
+def clone_or_pull_repo():
+    """Clone or update the vietlott-data repo"""
+    if os.path.exists(os.path.join(REPO_DIR, '.git')):
+        print("  Updating vietlott-data repo...")
+        subprocess.run(['git', '-C', REPO_DIR, 'pull', '--ff-only'],
+                       capture_output=True, timeout=60)
+    else:
+        print("  Cloning vietlott-data repo...")
+        subprocess.run(['git', 'clone', '--depth', '1', REPO_URL, REPO_DIR],
+                       capture_output=True, timeout=120)
+
+
+def parse_power655(filepath):
+    """Parse Power 6/55 JSONL → our format
+    Format: {"date":"2017-08-01","id":"00001","result":[5,10,14,23,24,38,35]}
+    result = [6 main numbers, power_number]
     """
-    Scrape data from Vietlott website using their internal API
-    game_type: 'power655', 'mega645', 'max3d'
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', [])
+            if len(result) >= 7:
+                main_numbers = sorted(result[:6])
+                power = result[6]
+            elif len(result) == 6:
+                main_numbers = sorted(result)
+                power = 0
+            else:
+                continue
+
+            records.append({
+                'draw_id': f"#{item.get('id', '?')}",
+                'date': item.get('date', ''),
+                'numbers': main_numbers,
+                'power': power,
+            })
+    return records
+
+
+def parse_mega645(filepath):
+    """Parse Mega 6/45 JSONL → our format
+    Format: {"date":"2017-10-25","id":"00198","result":[12,17,23,25,34,38]}
     """
-    results = []
-
-    game_urls = {
-        'power655': 'https://vietlott.vn/ajx/loteryShed498702498498702702702.aspx',
-        'mega645': 'https://vietlott.vn/ajx/loteryShedule645702702498702702.aspx',
-    }
-
-    # Try fetching from the API
-    try:
-        if game_type in game_urls:
-            for page in range(1, pages + 1):
-                payload = {
-                    'ession': '',
-                    'Ession': '',
-                    'GameDrawId': '',
-                    'OrgId': '',
-                    'PageIndex': str(page),
-                    'PageSize': '20',
-                    'GameId': '1' if game_type == 'power655' else '2',
-                }
-
-                resp = requests.post(
-                    game_urls[game_type],
-                    data=payload,
-                    headers=HEADERS,
-                    timeout=10
-                )
-
-                if resp.status_code == 200:
-                    data = resp.json() if resp.headers.get('content-type', '').startswith('application/json') else None
-                    if data:
-                        results.extend(data.get('Data', []))
-
-                time.sleep(0.5)
-    except Exception as e:
-        print(f"API scraping failed for {game_type}: {e}")
-
-    return results
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', [])
+            if len(result) < 6:
+                continue
+            records.append({
+                'draw_id': f"#{item.get('id', '?')}",
+                'date': item.get('date', ''),
+                'numbers': sorted(result[:6]),
+            })
+    return records
 
 
-def generate_historical_data():
+def parse_max3d(filepath):
+    """Parse Max 3D JSONL → our format
+    Format: {"date":"...","id":"...","result":{"Giải Đặc biệt":["015","517"],...}}
     """
-    Generate comprehensive historical data based on real Vietlott patterns.
-    Uses known statistical distributions of Vietlott results.
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', {})
+            if isinstance(result, dict):
+                # Collect all prize numbers
+                all_nums = []
+                for prize_name in ['Giải Đặc biệt', 'Giải Nhất', 'Giải Nhì', 'Giải ba']:
+                    nums = result.get(prize_name, [])
+                    all_nums.extend(nums)
+                # Take the special prize as main numbers
+                special = result.get('Giải Đặc biệt', [])
+                first = result.get('Giải Nhất', [])
+                records.append({
+                    'draw_id': f"#{item.get('id', '?')}",
+                    'date': item.get('date', ''),
+                    'numbers': special + first[:1],  # Top 3 prize numbers
+                    'prize_1st': special[0] if special else '',
+                    'prize_2nd': special[1] if len(special) > 1 else '',
+                    'prize_3rd': first[0] if first else '',
+                    'all_prizes': result,
+                })
+    return records
+
+
+def parse_max3dplus(filepath):
+    """Parse Max 3D+ JSONL → our format (same structure as Max 3D)"""
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', {})
+            if isinstance(result, dict):
+                special = result.get('Giải Đặc biệt', [])
+                first = result.get('Giải Nhất', [])
+                second = result.get('Giải Nhì', [])
+                # Max 3D+ has more numbers
+                nums = special + first[:2] + second[:2]
+                records.append({
+                    'draw_id': f"#{item.get('id', '?')}",
+                    'date': item.get('date', ''),
+                    'numbers': nums[:6],
+                    'prize_1st': special[0] if special else '',
+                    'prize_2nd': special[1] if len(special) > 1 else '',
+                    'prize_3rd': first[0] if first else '',
+                    'all_prizes': result,
+                })
+    return records
+
+
+def parse_keno(filepath):
+    """Parse Keno JSONL → our format
+    Format: {"date":"2022-12-04","id":"#0110271","result":[3,8,10,...20 numbers]}
     """
-    import numpy as np
-    np.random.seed(42)
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', [])
+            if len(result) < 20:
+                continue
+            records.append({
+                'draw_id': item.get('id', '?'),
+                'date': item.get('date', ''),
+                'numbers': sorted(result[:20]),
+            })
+    return records
 
-    data = {'power655': [], 'mega645': [], 'max3d': []}
 
-    # Power 6/55 - Generate ~1000 draws (roughly 3 years of data, 3 draws/week)
-    start_date = datetime(2021, 1, 2)
-    draw_days = [1, 3, 5]  # Mon, Wed, Fri (Tue, Thu, Sat in VN)
-
-    draw_id = 800
-    current_date = start_date
-
-    # Simulate realistic frequency distribution
-    # Some numbers appear more frequently in real lottery data
-    hot_numbers_55 = [7, 11, 18, 23, 33, 38, 42, 45, 50, 55]
-    cold_numbers_55 = [1, 4, 9, 14, 27, 31, 36, 48, 52, 54]
-
-    # Create weighted probability
-    weights_55 = np.ones(55)
-    for n in hot_numbers_55:
-        weights_55[n-1] = 1.3
-    for n in cold_numbers_55:
-        weights_55[n-1] = 0.7
-    weights_55 = weights_55 / weights_55.sum()
-
-    for i in range(1000):
-        # Move to next draw day
-        while current_date.weekday() not in draw_days:
-            current_date += timedelta(days=1)
-
-        # Generate 6 main numbers (sorted, no duplicates)
-        main_numbers = sorted(np.random.choice(
-            range(1, 56), size=6, replace=False, p=weights_55
-        ).tolist())
-
-        # Power number
-        power_number = int(np.random.randint(1, 56))
-
-        data['power655'].append({
-            'draw_id': f'#{draw_id + i:05d}',
-            'date': current_date.strftime('%Y-%m-%d'),
-            'numbers': main_numbers,
-            'power': power_number,
-            'jackpot': int(np.random.uniform(30, 300)) * 1000000000
-        })
-
-        current_date += timedelta(days=1)
-
-    # Mega 6/45 - Generate ~1000 draws
-    hot_numbers_45 = [3, 8, 15, 22, 27, 33, 38, 41, 44]
-    cold_numbers_45 = [1, 6, 10, 19, 25, 30, 35, 40, 43]
-
-    weights_45 = np.ones(45)
-    for n in hot_numbers_45:
-        weights_45[n-1] = 1.3
-    for n in cold_numbers_45:
-        weights_45[n-1] = 0.7
-    weights_45 = weights_45 / weights_45.sum()
-
-    current_date = start_date
-    draw_id = 900
-
-    for i in range(1000):
-        while current_date.weekday() not in [2, 4, 6]:  # Wed, Fri, Sun
-            current_date += timedelta(days=1)
-
-        main_numbers = sorted(np.random.choice(
-            range(1, 46), size=6, replace=False, p=weights_45
-        ).tolist())
-
-        data['mega645'].append({
-            'draw_id': f'#{draw_id + i:05d}',
-            'date': current_date.strftime('%Y-%m-%d'),
-            'numbers': main_numbers,
-            'jackpot': int(np.random.uniform(12, 150)) * 1000000000
-        })
-
-        current_date += timedelta(days=1)
-
-    # Max 3D - Generate ~1500 draws
-    current_date = start_date
-    draw_id = 700
-
-    for i in range(1500):
-        while current_date.weekday() not in [0, 1, 2, 3, 4]:  # Mon-Fri
-            current_date += timedelta(days=1)
-
-        # Max 3D has multiple 3-digit numbers
-        numbers = [
-            f'{np.random.randint(0, 1000):03d}'
-            for _ in range(3)
-        ]
-
-        data['max3d'].append({
-            'draw_id': f'#{draw_id + i:05d}',
-            'date': current_date.strftime('%Y-%m-%d'),
-            'numbers': numbers,
-            'prize_1st': f'{np.random.randint(0, 1000):03d}',
-            'prize_2nd': f'{np.random.randint(0, 1000):03d}',
-            'prize_3rd': f'{np.random.randint(0, 1000):03d}',
-        })
-
-        current_date += timedelta(days=1)
-
-    return data
+PARSERS = {
+    'power655': parse_power655,
+    'mega645': parse_mega645,
+    'max3d': parse_max3d,
+    'max3dplus': parse_max3dplus,
+    'keno': parse_keno,
+}
 
 
 def save_data(data, filename):
     filepath = os.path.join(DATA_DIR, filename)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"Saved {len(data)} records to {filepath}")
+    print(f"  Saved {len(data):>6} records → {filename}")
     return filepath
 
 
@@ -193,47 +236,58 @@ def load_data(filename):
 
 
 def collect_all_data():
-    """Main function to collect all Vietlott data"""
+    """Main: clone repo + parse all games → save JSON"""
     print("=" * 60)
-    print("VIETLOTT DATA COLLECTOR")
+    print("VIETLOTT REAL DATA COLLECTOR")
+    print("  Source: github.com/vietvudanh/vietlott-data")
     print("=" * 60)
 
-    # Try to scrape from API first
-    print("\n[1/3] Attempting to scrape Power 6/55 data...")
-    power_data = scrape_vietlott_api('power655', pages=50)
+    # Clone / pull
+    clone_or_pull_repo()
 
-    print("[2/3] Attempting to scrape Mega 6/45 data...")
-    mega_data = scrape_vietlott_api('mega645', pages=50)
+    if not os.path.exists(os.path.join(REPO_DIR, 'data')):
+        print("ERROR: Could not access vietlott-data repo")
+        sys.exit(1)
 
-    # If scraping didn't get enough data, use generated data
-    if len(power_data) < 100 or len(mega_data) < 100:
-        print("\n⚠ API scraping returned limited data. Generating comprehensive historical dataset...")
-        generated = generate_historical_data()
+    all_data = {}
+    print("\nParsing real Vietlott data:")
 
-        if len(power_data) < 100:
-            power_data = generated['power655']
-        if len(mega_data) < 100:
-            mega_data = generated['mega645']
-        max3d_data = generated['max3d']
-    else:
-        max3d_data = generated.get('max3d', [])
+    for game_type, jsonl_file in GAME_FILES.items():
+        filepath = os.path.join(REPO_DIR, 'data', jsonl_file)
+        if not os.path.exists(filepath):
+            print(f"  ⚠ {jsonl_file} not found, skipping {game_type}")
+            continue
 
-    # Save all data
-    save_data(power_data, 'power655.json')
-    save_data(mega_data, 'mega645.json')
-    save_data(max3d_data, 'max3d.json')
+        parser = PARSERS.get(game_type)
+        if not parser:
+            continue
 
-    print(f"\n✓ Total records collected:")
-    print(f"  Power 6/55: {len(power_data)} draws")
-    print(f"  Mega 6/45:  {len(mega_data)} draws")
-    print(f"  Max 3D:     {len(max3d_data)} draws")
-    print(f"\nData saved to: {DATA_DIR}")
+        records = parser(filepath)
+        # Sort by date
+        records.sort(key=lambda x: x.get('date', ''))
+        all_data[game_type] = records
+        save_data(records, f'{game_type}.json')
 
-    return {
-        'power655': power_data,
-        'mega645': mega_data,
-        'max3d': max3d_data
-    }
+    # Save game config
+    config_for_frontend = {}
+    for gt, cfg in GAME_CONFIG.items():
+        config_for_frontend[gt] = {
+            **cfg,
+            'total_draws': len(all_data.get(gt, [])),
+        }
+    save_data(config_for_frontend, 'game_config.json')
+
+    total = sum(len(v) for v in all_data.values())
+    print(f"\n✓ Total: {total:,} REAL draws across {len(all_data)} game types")
+
+    # Show date ranges
+    for gt, records in all_data.items():
+        if records:
+            first_date = records[0].get('date', '?')
+            last_date = records[-1].get('date', '?')
+            print(f"  {gt:12s}: {len(records):>6} draws  ({first_date} → {last_date})")
+
+    return all_data
 
 
 if __name__ == '__main__':

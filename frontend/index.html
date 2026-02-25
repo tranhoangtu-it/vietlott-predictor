@@ -8,251 +8,160 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-    <!-- Header -->
     <header class="header">
         <div class="container">
-            <div class="logo">
-                <i class="fas fa-brain"></i>
-                <span>Vietlott <strong>AI Predictor</strong></span>
-            </div>
+            <div class="logo"><i class="fas fa-brain"></i> <span>Vietlott <strong>AI</strong></span></div>
             <nav class="nav">
-                <a href="#" class="nav-link active" data-page="dashboard">
-                    <i class="fas fa-chart-line"></i> Dashboard
-                </a>
-                <a href="#" class="nav-link" data-page="predictions">
-                    <i class="fas fa-magic"></i> Dự đoán
-                </a>
-                <a href="#" class="nav-link" data-page="history">
-                    <i class="fas fa-history"></i> Lịch sử
-                </a>
-                <a href="#" class="nav-link" data-page="analysis">
-                    <i class="fas fa-chart-bar"></i> Phân tích
-                </a>
+                <a href="#" class="nav-link active" data-page="dashboard"><i class="fas fa-chart-line"></i> Dashboard</a>
+                <a href="#" class="nav-link" data-page="predictions"><i class="fas fa-magic"></i> Dự đoán</a>
+                <a href="#" class="nav-link" data-page="history"><i class="fas fa-history"></i> Lịch sử</a>
+                <a href="#" class="nav-link" data-page="analysis"><i class="fas fa-chart-bar"></i> Phân tích</a>
+                <a href="#" class="nav-link" data-page="simulator"><i class="fas fa-gamepad"></i> Giả lập</a>
             </nav>
             <div class="header-actions">
                 <select id="gameSelect" class="game-select">
                     <option value="power655">Power 6/55</option>
                     <option value="mega645">Mega 6/45</option>
+                    <option value="keno">Keno</option>
+                    <option value="max3d">Max 3D</option>
+                    <option value="max3dplus">Max 3D+</option>
                 </select>
-                <button id="btnTrain" class="btn btn-primary" title="Auto-updated daily">
-                    <i class="fas fa-robot"></i> AI Info
-                </button>
             </div>
         </div>
     </header>
 
-    <!-- Main Content -->
     <main class="main">
-        <!-- Dashboard Page -->
+        <!-- Dashboard -->
         <section id="page-dashboard" class="page active">
             <div class="container">
-                <!-- Status Cards -->
                 <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon bg-blue"><i class="fas fa-database"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Tổng kỳ quay</span>
-                            <span class="stat-value" id="totalDraws">--</span>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon bg-green"><i class="fas fa-brain"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Models đã train</span>
-                            <span class="stat-value" id="modelsTrained">3</span>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon bg-purple"><i class="fas fa-bullseye"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Độ tin cậy TB</span>
-                            <span class="stat-value" id="avgConfidence">--</span>
-                        </div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon bg-orange"><i class="fas fa-clock"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Cập nhật lần cuối</span>
-                            <span class="stat-value" id="lastUpdate">--</span>
-                        </div>
-                    </div>
+                    <div class="stat-card"><div class="stat-icon bg-blue"><i class="fas fa-database"></i></div><div class="stat-info"><span class="stat-label">Tổng kỳ quay</span><span class="stat-value" id="totalDraws">--</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-green"><i class="fas fa-brain"></i></div><div class="stat-info"><span class="stat-label">Game types</span><span class="stat-value">5</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-purple"><i class="fas fa-bullseye"></i></div><div class="stat-info"><span class="stat-label">Độ tin cậy TB</span><span class="stat-value" id="avgConfidence">--</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-orange"><i class="fas fa-clock"></i></div><div class="stat-info"><span class="stat-label">Cập nhật</span><span class="stat-value" id="lastUpdate">--</span></div></div>
                 </div>
-
-                <!-- Latest Prediction -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-star"></i> Dự đoán hàng đầu - Ensemble AI</h2>
-                        <button class="btn btn-sm btn-accent" id="btnRefreshPred">
-                            <i class="fas fa-sync-alt"></i> Làm mới
-                        </button>
-                    </div>
-                    <div class="card-body">
-                        <div id="topPrediction" class="top-prediction">
-                            <div class="loading"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Two columns -->
+                <div class="card"><div class="card-header"><h2><i class="fas fa-star"></i> Dự đoán hàng đầu</h2><button class="btn btn-sm btn-accent" id="btnRefreshPred"><i class="fas fa-sync-alt"></i> Làm mới</button></div><div class="card-body"><div id="topPrediction" class="top-prediction"><div class="loading"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div></div></div></div>
                 <div class="grid-2">
-                    <!-- Recent Draws -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h2><i class="fas fa-history"></i> Kết quả gần đây</h2>
-                        </div>
-                        <div class="card-body">
-                            <div id="recentDraws" class="recent-draws">
-                                <div class="loading"><i class="fas fa-spinner fa-spin"></i></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Hot & Cold Numbers -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h2><i class="fas fa-fire"></i> Số nóng & Số lạnh</h2>
-                        </div>
-                        <div class="card-body">
-                            <div id="hotCold" class="hot-cold">
-                                <div class="loading"><i class="fas fa-spinner fa-spin"></i></div>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="card"><div class="card-header"><h2><i class="fas fa-history"></i> Kết quả gần đây</h2></div><div class="card-body"><div id="recentDraws"><div class="loading"><i class="fas fa-spinner fa-spin"></i></div></div></div></div>
+                    <div class="card"><div class="card-header"><h2><i class="fas fa-fire"></i> Số nóng & lạnh</h2></div><div class="card-body"><div id="hotCold"><div class="loading"><i class="fas fa-spinner fa-spin"></i></div></div></div></div>
                 </div>
-
-                <!-- Frequency Chart -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-chart-bar"></i> Biểu đồ tần suất số</h2>
-                    </div>
-                    <div class="card-body">
-                        <div id="frequencyChart" class="chart-container">
-                            <canvas id="freqCanvas"></canvas>
-                        </div>
-                    </div>
-                </div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-chart-bar"></i> Biểu đồ tần suất</h2></div><div class="card-body"><div id="frequencyChart" class="chart-container"></div></div></div>
             </div>
         </section>
 
-        <!-- Predictions Page -->
+        <!-- Predictions -->
         <section id="page-predictions" class="page">
             <div class="container">
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-robot"></i> Dự đoán AI cho kỳ tiếp theo</h2>
-                        <button class="btn btn-primary" id="btnNewPredict">
-                            <i class="fas fa-magic"></i> Dự đoán mới
-                        </button>
-                    </div>
-                    <div class="card-body">
-                        <div id="allPredictions" class="predictions-grid">
-                            <div class="loading"><i class="fas fa-spinner fa-spin"></i></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Method Comparison -->
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-balance-scale"></i> So sánh phương pháp</h2>
-                    </div>
-                    <div class="card-body">
-                        <div id="methodComparison" class="method-grid"></div>
-                    </div>
-                </div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-robot"></i> Dự đoán AI cho kỳ tiếp theo</h2></div><div class="card-body"><div id="allPredictions" class="predictions-grid"><div class="loading"><i class="fas fa-spinner fa-spin"></i></div></div></div></div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-balance-scale"></i> So sánh phương pháp</h2></div><div class="card-body"><div id="methodComparison" class="method-grid"></div></div></div>
             </div>
         </section>
 
-        <!-- History Page -->
+        <!-- History -->
         <section id="page-history" class="page">
             <div class="container">
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-list"></i> Lịch sử kết quả</h2>
-                        <div class="pagination-controls">
-                            <button class="btn btn-sm" id="btnPrevPage"><i class="fas fa-chevron-left"></i></button>
-                            <span id="pageInfo">1 / 1</span>
-                            <button class="btn btn-sm" id="btnNextPage"><i class="fas fa-chevron-right"></i></button>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <div id="historyTable" class="history-table"></div>
-                    </div>
-                </div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-list"></i> Lịch sử kết quả</h2><div class="pagination-controls"><button class="btn btn-sm" id="btnPrevPage"><i class="fas fa-chevron-left"></i></button><span id="pageInfo">1/1</span><button class="btn btn-sm" id="btnNextPage"><i class="fas fa-chevron-right"></i></button></div></div><div class="card-body"><div id="historyTable"></div></div></div>
             </div>
         </section>
 
-        <!-- Analysis Page -->
+        <!-- Analysis -->
         <section id="page-analysis" class="page">
             <div class="container">
                 <div class="grid-2">
+                    <div class="card"><div class="card-header"><h2><i class="fas fa-percentage"></i> Phân bố Chẵn/Lẻ</h2></div><div class="card-body"><div id="oddEvenChart"></div></div></div>
+                    <div class="card"><div class="card-header"><h2><i class="fas fa-layer-group"></i> Phân bố nhóm</h2></div><div class="card-body"><div id="decadeChart"></div></div></div>
+                </div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-link"></i> Cặp số hay xuất hiện</h2></div><div class="card-body"><div id="pairsTable" class="pairs-grid"></div></div></div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-calculator"></i> Thống kê tổng</h2></div><div class="card-body"><div id="sumStats" class="sum-stats"></div></div></div>
+                <div class="card"><div class="card-header"><h2><i class="fas fa-clock"></i> Số lâu chưa ra</h2></div><div class="card-body"><div id="overdueNumbers" class="overdue-numbers"></div></div></div>
+            </div>
+        </section>
+
+        <!-- Simulator -->
+        <section id="page-simulator" class="page">
+            <div class="container">
+                <!-- Game Info Banner -->
+                <div class="card sim-banner">
+                    <div class="card-body" style="text-align:center;padding:24px">
+                        <h2 style="font-size:1.5rem;margin-bottom:8px"><i class="fas fa-gamepad"></i> Giả lập Vietlott</h2>
+                        <p style="color:var(--text-muted)">Chọn số, quay thưởng giả lập, xem bạn trúng bao nhiêu! Không tốn tiền thật.</p>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <!-- Left: Pick numbers -->
                     <div class="card">
                         <div class="card-header">
-                            <h2><i class="fas fa-percentage"></i> Phân bố Chẵn/Lẻ</h2>
+                            <h2><i class="fas fa-hand-pointer"></i> Chọn số của bạn</h2>
+                            <div style="display:flex;gap:8px">
+                                <button class="btn btn-sm" id="btnSimRandom"><i class="fas fa-random"></i> Random</button>
+                                <button class="btn btn-sm" id="btnSimAI"><i class="fas fa-brain"></i> Dùng AI</button>
+                                <button class="btn btn-sm" id="btnSimClear"><i class="fas fa-eraser"></i> Xoá</button>
+                            </div>
                         </div>
                         <div class="card-body">
-                            <div id="oddEvenChart" class="chart-container">
-                                <canvas id="oddEvenCanvas"></canvas>
+                            <div id="simSelectedDisplay" class="sim-selected-display">
+                                <p style="color:var(--text-muted);font-size:0.9rem">Chọn số bên dưới hoặc nhấn Random/AI</p>
+                            </div>
+                            <div id="simNumberGrid" class="sim-number-grid"></div>
+                            <!-- For digit games -->
+                            <div id="simDigitInput" class="sim-digit-input" style="display:none">
+                                <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px">Nhập số (mỗi dòng một số):</p>
+                                <div id="simDigitFields"></div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- Right: Draw result -->
                     <div class="card">
                         <div class="card-header">
-                            <h2><i class="fas fa-layer-group"></i> Phân bố theo nhóm</h2>
+                            <h2><i class="fas fa-trophy"></i> Kết quả quay</h2>
                         </div>
                         <div class="card-body">
-                            <div id="decadeChart" class="chart-container">
-                                <canvas id="decadeCanvas"></canvas>
+                            <div id="simDrawResult" class="sim-draw-result">
+                                <p style="color:var(--text-muted);text-align:center">Nhấn "Quay thưởng" để bắt đầu</p>
                             </div>
+                            <div style="text-align:center;margin:20px 0">
+                                <button class="btn btn-primary btn-lg" id="btnSimDraw">
+                                    <i class="fas fa-play"></i> Quay thưởng!
+                                </button>
+                                <button class="btn btn-accent btn-lg" id="btnSimAuto" style="margin-left:8px">
+                                    <i class="fas fa-forward"></i> Auto x100
+                                </button>
+                            </div>
+                            <div id="simMatchResult" class="sim-match-result"></div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Statistics -->
                 <div class="card">
                     <div class="card-header">
-                        <h2><i class="fas fa-link"></i> Các cặp số hay xuất hiện cùng nhau</h2>
+                        <h2><i class="fas fa-chart-line"></i> Thống kê giả lập</h2>
+                        <button class="btn btn-sm" id="btnSimResetStats"><i class="fas fa-redo"></i> Reset</button>
                     </div>
                     <div class="card-body">
-                        <div id="pairsTable" class="pairs-grid"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-calculator"></i> Thống kê tổng</h2>
-                    </div>
-                    <div class="card-body">
-                        <div id="sumStats" class="sum-stats"></div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h2><i class="fas fa-clock"></i> Số lâu chưa xuất hiện</h2>
-                    </div>
-                    <div class="card-body">
-                        <div id="overdueNumbers" class="overdue-numbers"></div>
+                        <div id="simStats" class="sim-stats-grid">
+                            <div class="sim-stat"><span class="sim-stat-val" id="simTotalPlays">0</span><span class="sim-stat-label">Lượt chơi</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="simTotalSpent">0</span><span class="sim-stat-label">Tổng chi (VNĐ)</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="simTotalWon">0</span><span class="sim-stat-label">Tổng thắng (VNĐ)</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="simProfit">0</span><span class="sim-stat-label">Lợi nhuận</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="simBestMatch">0</span><span class="sim-stat-label">Trùng cao nhất</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="simJackpotCount">0</span><span class="sim-stat-label">Jackpot</span></div>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
     </main>
 
-    <!-- Toast Notification -->
     <div id="toast" class="toast"></div>
-
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay hidden">
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <p id="loadingText">Đang xử lý...</p>
-        </div>
-    </div>
+    <div id="loadingOverlay" class="loading-overlay hidden"><div class="loading-content"><div class="loading-spinner"></div><p id="loadingText">Đang xử lý...</p></div></div>
 
     <footer class="footer">
         <div class="container">
-            <p><i class="fas fa-info-circle"></i> Lưu ý: Dự đoán dựa trên AI và thống kê, chỉ mang tính tham khảo. Xổ số là trò chơi may rủi.</p>
-            <p>Powered by LSTM + Random Forest + Gradient Boosting + Statistical Analysis</p>
+            <p><i class="fas fa-info-circle"></i> Dự đoán AI chỉ mang tính tham khảo. Xổ số là trò chơi may rủi.</p>
+            <p>LSTM + Random Forest + Gradient Boosting + Statistical + Digit Pattern AI</p>
         </div>
     </footer>
 

@@ -1,41 +1,40 @@
 """
 Vietlott AI Prediction Engine
 Kết hợp: LSTM Neural Network + Random Forest + Statistical Analysis + Ensemble
+Hỗ trợ: Power 6/55, Mega 6/45, Max 3D, Max 3D+, Keno
+Data thật từ github.com/vietvudanh/vietlott-data
 """
 import numpy as np
-import pandas as pd
 import json
 import os
-import pickle
 from collections import Counter
 from datetime import datetime
 
 import torch
 import torch.nn as nn
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import MinMaxScaler
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models')
 os.makedirs(MODELS_DIR, exist_ok=True)
 
+# Game configuration
+GAME_CONFIG = {
+    'power655':  {'max_number': 55, 'pick_count': 6,  'has_power': True,  'digit_game': False},
+    'mega645':   {'max_number': 45, 'pick_count': 6,  'has_power': False, 'digit_game': False},
+    'keno':      {'max_number': 80, 'pick_count': 10, 'has_power': False, 'digit_game': False},
+    'max3d':     {'max_number': 999,'pick_count': 3,  'has_power': False, 'digit_game': True},
+    'max3dplus': {'max_number': 999,'pick_count': 6,  'has_power': False, 'digit_game': True},
+}
 
 # ============================================================
-# 1. LSTM Neural Network Model
+# 1. LSTM Neural Network
 # ============================================================
 class LSTMLotteryModel(nn.Module):
     def __init__(self, input_size, hidden_size=128, num_layers=2, output_size=55):
         super().__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=0.2
-        )
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
+                            num_layers=num_layers, batch_first=True, dropout=0.2)
         self.fc1 = nn.Linear(hidden_size, 64)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.3)
@@ -43,14 +42,9 @@ class LSTMLotteryModel(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        lstm_out, _ = self.lstm(x)
-        out = lstm_out[:, -1, :]  # Last time step
-        out = self.fc1(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.fc2(out)
-        out = self.sigmoid(out)
-        return out
+        out, _ = self.lstm(x)
+        out = self.fc2(self.dropout(self.relu(self.fc1(out[:, -1, :]))))
+        return self.sigmoid(out)
 
 
 class LSTMPredictor:
@@ -58,189 +52,125 @@ class LSTMPredictor:
         self.max_number = max_number
         self.seq_length = seq_length
         self.model = None
-        self.scaler = MinMaxScaler()
 
     def prepare_data(self, draws):
-        """Convert draw history to binary matrix for LSTM"""
-        # Each draw -> binary vector of length max_number
-        binary_matrix = []
+        binary = np.array([
+            np.array([1 if (n-1) == j else 0 for j in range(self.max_number)] if isinstance(draws[0][0], int) else
+                     [0]*self.max_number)
+            for draw in draws
+            for n in [0]  # dummy
+        ]) if False else None  # placeholder
+
+        # Build binary matrix properly
+        matrix = []
         for draw in draws:
             vec = np.zeros(self.max_number)
             for num in draw:
                 if 1 <= num <= self.max_number:
                     vec[num - 1] = 1
-            binary_matrix.append(vec)
+            matrix.append(vec)
+        matrix = np.array(matrix)
 
-        binary_matrix = np.array(binary_matrix)
-
-        # Create sequences
         X, y = [], []
-        for i in range(len(binary_matrix) - self.seq_length):
-            X.append(binary_matrix[i:i + self.seq_length])
-            y.append(binary_matrix[i + self.seq_length])
-
+        for i in range(len(matrix) - self.seq_length):
+            X.append(matrix[i:i + self.seq_length])
+            y.append(matrix[i + self.seq_length])
         return np.array(X), np.array(y)
 
-    def train(self, draws, epochs=50, lr=0.001):
-        """Train LSTM model"""
+    def train(self, draws, epochs=30, lr=0.001):
         if len(draws) < self.seq_length + 10:
-            print("Not enough data for LSTM training")
             return
-
         X, y = self.prepare_data(draws)
-        X_tensor = torch.FloatTensor(X)
-        y_tensor = torch.FloatTensor(y)
+        X_t = torch.FloatTensor(np.array(X))
+        y_t = torch.FloatTensor(np.array(y))
 
-        self.model = LSTMLotteryModel(
-            input_size=self.max_number,
-            hidden_size=128,
-            num_layers=2,
-            output_size=self.max_number
-        )
-
+        self.model = LSTMLotteryModel(self.max_number, 128, 2, self.max_number)
         criterion = nn.BCELoss()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
         self.model.train()
         for epoch in range(epochs):
-            # Mini-batch training
-            batch_size = 32
-            total_loss = 0
-            n_batches = 0
-
-            indices = torch.randperm(len(X_tensor))
-            for i in range(0, len(X_tensor), batch_size):
-                batch_idx = indices[i:i + batch_size]
-                batch_X = X_tensor[batch_idx]
-                batch_y = y_tensor[batch_idx]
-
+            batch_size = 64
+            total_loss, n_b = 0, 0
+            idx = torch.randperm(len(X_t))
+            for i in range(0, len(X_t), batch_size):
+                bi = idx[i:i + batch_size]
                 optimizer.zero_grad()
-                outputs = self.model(batch_X)
-                loss = criterion(outputs, batch_y)
+                loss = criterion(self.model(X_t[bi]), y_t[bi])
                 loss.backward()
                 optimizer.step()
-
                 total_loss += loss.item()
-                n_batches += 1
-
+                n_b += 1
             if (epoch + 1) % 10 == 0:
-                avg_loss = total_loss / n_batches
-                print(f"  LSTM Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}")
+                print(f"  LSTM Epoch [{epoch+1}/{epochs}], Loss: {total_loss/n_b:.4f}")
 
-    def predict(self, recent_draws, n_numbers=6, n_predictions=5):
-        """Generate predictions using trained LSTM"""
+    def predict(self, draws, n_numbers=6, n_predictions=5):
         if self.model is None:
             return []
-
         self.model.eval()
-        predictions = []
 
-        # Use the most recent sequence
-        binary_seq = []
-        for draw in recent_draws[-self.seq_length:]:
+        seq = []
+        for draw in draws[-self.seq_length:]:
             vec = np.zeros(self.max_number)
             for num in draw:
                 if 1 <= num <= self.max_number:
                     vec[num - 1] = 1
-            binary_seq.append(vec)
-
-        # Pad if needed
-        while len(binary_seq) < self.seq_length:
-            binary_seq.insert(0, np.zeros(self.max_number))
-
-        input_tensor = torch.FloatTensor([binary_seq])
+            seq.append(vec)
+        while len(seq) < self.seq_length:
+            seq.insert(0, np.zeros(self.max_number))
 
         with torch.no_grad():
-            output = self.model(input_tensor)
-            probabilities = output.numpy()[0]
+            probs = self.model(torch.FloatTensor(np.array([seq]))).numpy()[0]
 
-        # Generate multiple predictions with different strategies
+        predictions = []
         for i in range(n_predictions):
-            # Add some noise for variety
             noise = np.random.normal(0, 0.05 * (i + 1), self.max_number)
-            adjusted_probs = np.clip(probabilities + noise, 0, 1)
-
-            # Select top numbers
-            top_indices = np.argsort(adjusted_probs)[-n_numbers*2:]
-            selected = np.random.choice(top_indices, size=n_numbers, replace=False)
-            prediction = sorted((selected + 1).tolist())
+            adj = np.clip(probs + noise, 0, 1)
+            top = np.argsort(adj)[-n_numbers * 2:]
+            sel = np.random.choice(top, size=n_numbers, replace=False)
             predictions.append({
-                'numbers': prediction,
-                'confidence': float(np.mean(adjusted_probs[selected])) * 100,
+                'numbers': sorted((sel + 1).tolist()),
+                'confidence': round(float(np.mean(adj[sel])) * 100, 1),
                 'method': 'LSTM Neural Network'
             })
-
         return predictions
 
 
 # ============================================================
-# 2. Random Forest + Gradient Boosting Model
+# 2. Random Forest + Gradient Boosting
 # ============================================================
 class MLPredictor:
     def __init__(self, max_number):
         self.max_number = max_number
-        self.rf_model = None
-        self.gb_model = None
+        self.rf_models = {}
+        self.gb_models = {}
 
     def extract_features(self, draws, window=10):
-        """Extract statistical features from draw history"""
-        features_list = []
-        labels_list = []
-
+        features_list, labels_list = [], []
         for i in range(window, len(draws)):
-            recent = draws[i-window:i]
+            recent = draws[i - window:i]
             target = draws[i]
-
-            # Feature engineering
             features = []
 
-            # 1. Frequency of each number in recent window
-            freq = Counter()
-            for draw in recent:
-                for num in draw:
-                    freq[num] += 1
-            freq_vector = [freq.get(n, 0) / window for n in range(1, self.max_number + 1)]
-            features.extend(freq_vector)
+            freq = Counter(n for d in recent for n in d)
+            features.extend([freq.get(n, 0) / window for n in range(1, self.max_number + 1)])
 
-            # 2. Gap since last appearance
-            gap_vector = []
             for n in range(1, self.max_number + 1):
                 gap = window
-                for j, draw in enumerate(reversed(recent)):
-                    if n in draw:
-                        gap = j
-                        break
-                gap_vector.append(gap / window)
-            features.extend(gap_vector)
+                for j, d in enumerate(reversed(recent)):
+                    if n in d:
+                        gap = j; break
+                features.append(gap / window)
 
-            # 3. Sum and spread statistics
             sums = [sum(d) for d in recent]
-            features.append(np.mean(sums))
-            features.append(np.std(sums))
+            features.extend([float(np.mean(sums)), float(np.std(sums))])
 
-            # 4. Consecutive number patterns
-            consec_counts = []
-            for draw in recent:
-                c = 0
-                sorted_d = sorted(draw)
-                for k in range(len(sorted_d)-1):
-                    if sorted_d[k+1] - sorted_d[k] == 1:
-                        c += 1
-                consec_counts.append(c)
-            features.append(np.mean(consec_counts))
-
-            # 5. Odd/Even ratio
-            odd_ratios = [sum(1 for n in d if n % 2 == 1) / len(d) for d in recent]
-            features.append(np.mean(odd_ratios))
-
-            # 6. High/Low ratio
-            mid = self.max_number // 2
-            high_ratios = [sum(1 for n in d if n > mid) / len(d) for d in recent]
-            features.append(np.mean(high_ratios))
+            consec = [sum(1 for k in range(len(sorted(d))-1) if sorted(d)[k+1]-sorted(d)[k]==1) for d in recent]
+            features.append(float(np.mean(consec)))
+            features.append(float(np.mean([sum(1 for n in d if n % 2 == 1) / len(d) for d in recent])))
+            features.append(float(np.mean([sum(1 for n in d if n > self.max_number//2) / len(d) for d in recent])))
 
             features_list.append(features)
-
-            # Labels: binary vector for target draw
             label = np.zeros(self.max_number)
             for num in target:
                 if 1 <= num <= self.max_number:
@@ -250,441 +180,388 @@ class MLPredictor:
         return np.array(features_list), np.array(labels_list)
 
     def train(self, draws):
-        """Train Random Forest and Gradient Boosting models"""
         X, y = self.extract_features(draws)
-
         if len(X) < 10:
-            print("Not enough data for ML training")
             return
-
-        # Train a model for each number position
-        self.rf_model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=15,
-            random_state=42,
-            n_jobs=-1
-        )
-
-        self.gb_model = GradientBoostingClassifier(
-            n_estimators=50,
-            max_depth=5,
-            random_state=42
-        )
-
-        # Multi-label: train one model per number
-        self.rf_models = {}
-        self.gb_models = {}
-
-        for num_idx in range(self.max_number):
-            y_single = y[:, num_idx]
-            if y_single.sum() > 5:  # Need enough positive examples
+        self.rf_models, self.gb_models = {}, {}
+        for idx in range(self.max_number):
+            ys = y[:, idx]
+            if ys.sum() > 5:
                 rf = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
-                rf.fit(X, y_single)
-                self.rf_models[num_idx] = rf
-
+                rf.fit(X, ys)
+                self.rf_models[idx] = rf
                 gb = GradientBoostingClassifier(n_estimators=50, max_depth=5, random_state=42)
-                gb.fit(X, y_single)
-                self.gb_models[num_idx] = gb
-
+                gb.fit(X, ys)
+                self.gb_models[idx] = gb
         print(f"  ML Models trained for {len(self.rf_models)} numbers")
 
     def predict(self, draws, n_numbers=6, n_predictions=5):
-        """Generate predictions using RF + GB ensemble"""
         if not self.rf_models:
             return []
-
         X, _ = self.extract_features(draws)
         if len(X) == 0:
             return []
-
-        last_features = X[-1:].reshape(1, -1)
+        last = X[-1:].reshape(1, -1)
+        rf_p = np.zeros(self.max_number)
+        gb_p = np.zeros(self.max_number)
+        for idx in range(self.max_number):
+            if idx in self.rf_models:
+                try: rf_p[idx] = self.rf_models[idx].predict_proba(last)[0][1]
+                except: rf_p[idx] = 0.1
+            if idx in self.gb_models:
+                try: gb_p[idx] = self.gb_models[idx].predict_proba(last)[0][1]
+                except: gb_p[idx] = 0.1
+        combined = 0.6 * rf_p + 0.4 * gb_p
         predictions = []
-
-        # Get probability scores from both models
-        rf_probs = np.zeros(self.max_number)
-        gb_probs = np.zeros(self.max_number)
-
-        for num_idx in range(self.max_number):
-            if num_idx in self.rf_models:
-                rf_probs[num_idx] = self.rf_models[num_idx].predict_proba(last_features)[0][1] if len(self.rf_models[num_idx].classes_) == 2 else 0.1
-            if num_idx in self.gb_models:
-                gb_probs[num_idx] = self.gb_models[num_idx].predict_proba(last_features)[0][1] if len(self.gb_models[num_idx].classes_) == 2 else 0.1
-
-        # Combine RF and GB
-        combined_probs = 0.6 * rf_probs + 0.4 * gb_probs
-
         for i in range(n_predictions):
-            noise = np.random.normal(0, 0.03 * (i + 1), self.max_number)
-            adjusted = np.clip(combined_probs + noise, 0, 1)
-
-            top_indices = np.argsort(adjusted)[-n_numbers*2:]
-            selected = np.random.choice(top_indices, size=n_numbers, replace=False)
-            prediction = sorted((selected + 1).tolist())
-
+            adj = np.clip(combined + np.random.normal(0, 0.03*(i+1), self.max_number), 0, 1)
+            top = np.argsort(adj)[-n_numbers*2:]
+            sel = np.random.choice(top, size=n_numbers, replace=False)
             predictions.append({
-                'numbers': prediction,
-                'confidence': float(np.mean(adjusted[selected])) * 100,
+                'numbers': sorted((sel + 1).tolist()),
+                'confidence': round(float(np.mean(adj[sel])) * 100, 1),
                 'method': 'Random Forest + Gradient Boosting'
             })
-
         return predictions
 
 
 # ============================================================
-# 3. Statistical Analysis Model
+# 3. Statistical Analysis
 # ============================================================
 class StatisticalPredictor:
     def __init__(self, max_number):
         self.max_number = max_number
 
     def analyze(self, draws):
-        """Comprehensive statistical analysis"""
-        all_numbers = []
-        for draw in draws:
-            all_numbers.extend(draw)
+        all_nums = [n for d in draws for n in d]
+        freq = Counter(all_nums)
+        total = len(draws)
 
-        freq = Counter(all_numbers)
-        total_draws = len(draws)
+        analysis = {'frequency': {}, 'hot_numbers': [], 'cold_numbers': [],
+                     'overdue_numbers': [], 'pairs': [], 'sum_range': {},
+                     'odd_even': {}, 'decade_distribution': {}}
 
-        analysis = {
-            'frequency': {},
-            'hot_numbers': [],
-            'cold_numbers': [],
-            'overdue_numbers': [],
-            'pairs': [],
-            'sum_range': {},
-            'odd_even': {},
-            'decade_distribution': {},
-        }
-
-        # Number frequency
         for n in range(1, self.max_number + 1):
             analysis['frequency'][n] = {
                 'count': freq.get(n, 0),
-                'percentage': round(freq.get(n, 0) / total_draws * 100, 2)
+                'percentage': round(freq.get(n, 0) / total * 100, 2)
             }
 
-        # Hot numbers (top 20% by frequency)
         sorted_freq = sorted(freq.items(), key=lambda x: x[1], reverse=True)
-        top_count = max(int(self.max_number * 0.2), 6)
-        analysis['hot_numbers'] = [n for n, _ in sorted_freq[:top_count]]
-        analysis['cold_numbers'] = [n for n, _ in sorted_freq[-top_count:]]
+        top_n = max(int(self.max_number * 0.2), 6)
+        analysis['hot_numbers'] = [n for n, _ in sorted_freq[:top_n]]
+        analysis['cold_numbers'] = [n for n, _ in sorted_freq[-top_n:]]
 
-        # Overdue numbers (not appeared recently)
-        recent_20 = draws[-20:]
-        recent_numbers = set()
-        for draw in recent_20:
-            recent_numbers.update(draw)
-        analysis['overdue_numbers'] = sorted([
-            n for n in range(1, self.max_number + 1)
-            if n not in recent_numbers
-        ])
+        recent_set = set(n for d in draws[-20:] for n in d)
+        analysis['overdue_numbers'] = sorted(n for n in range(1, self.max_number + 1) if n not in recent_set)
 
-        # Common pairs
-        pair_counter = Counter()
-        for draw in draws:
-            sorted_draw = sorted(draw)
-            for i in range(len(sorted_draw)):
-                for j in range(i + 1, len(sorted_draw)):
-                    pair_counter[(sorted_draw[i], sorted_draw[j])] += 1
+        pair_c = Counter()
+        for d in draws:
+            sd = sorted(d)
+            for i in range(len(sd)):
+                for j in range(i + 1, len(sd)):
+                    pair_c[(sd[i], sd[j])] += 1
+        analysis['pairs'] = [{'pair': list(p), 'count': c} for p, c in pair_c.most_common(20)]
 
-        analysis['pairs'] = [
-            {'pair': list(pair), 'count': count}
-            for pair, count in pair_counter.most_common(20)
-        ]
-
-        # Sum statistics
         sums = [sum(d) for d in draws]
         analysis['sum_range'] = {
-            'mean': round(float(np.mean(sums)), 1),
-            'std': round(float(np.std(sums)), 1),
-            'min': int(min(sums)),
-            'max': int(max(sums)),
+            'mean': round(float(np.mean(sums)), 1), 'std': round(float(np.std(sums)), 1),
+            'min': int(min(sums)), 'max': int(max(sums)),
             'median': round(float(np.median(sums)), 1)
         }
 
-        # Odd/Even distribution
         odd_counts = [sum(1 for n in d if n % 2 == 1) for d in draws]
-        odd_counter = Counter(odd_counts)
-        total = len(draws)
-        analysis['odd_even'] = {
-            str(k): round(v / total * 100, 1) for k, v in sorted(odd_counter.items())
-        }
+        odd_c = Counter(odd_counts)
+        analysis['odd_even'] = {str(k): round(v / total * 100, 1) for k, v in sorted(odd_c.items())}
 
-        # Decade distribution
         decades = {}
         for n in range(1, self.max_number + 1):
-            decade = f"{(n-1)//10*10+1}-{min((n-1)//10*10+10, self.max_number)}"
-            if decade not in decades:
-                decades[decade] = 0
-            decades[decade] += freq.get(n, 0)
+            dec = f"{(n-1)//10*10+1}-{min((n-1)//10*10+10, self.max_number)}"
+            decades[dec] = decades.get(dec, 0) + freq.get(n, 0)
         analysis['decade_distribution'] = decades
 
         return analysis
 
     def predict(self, draws, n_numbers=6, n_predictions=5):
-        """Statistical prediction based on patterns"""
         analysis = self.analyze(draws)
+        hot, cold, overdue = analysis['hot_numbers'], analysis['cold_numbers'], analysis['overdue_numbers']
         predictions = []
 
-        hot = analysis['hot_numbers']
-        cold = analysis['cold_numbers']
-        overdue = analysis['overdue_numbers']
+        strategies = [
+            lambda: set(np.random.choice(hot[:n_numbers*2], size=min(n_numbers, len(hot[:n_numbers*2])), replace=False)),
+            lambda: set(np.random.choice(hot[:15], size=min(n_numbers//2+1, len(hot[:15])), replace=False)) |
+                    (set(np.random.choice(overdue[:15] or [1], size=min(n_numbers//2, len(overdue[:15] or [1])), replace=False)) if overdue else set()),
+            lambda: set(np.random.choice([n for n in range(1, self.max_number+1) if n%2==1], size=3, replace=False)) |
+                    set(np.random.choice([n for n in range(1, self.max_number+1) if n%2==0], size=3, replace=False)),
+            lambda: set(np.random.choice(range(1, self.max_number+1), size=n_numbers, replace=False)),
+            lambda: (set(analysis['pairs'][np.random.randint(0, min(5, len(analysis['pairs'])))]['pair']) if analysis['pairs'] else set()) or
+                    set(np.random.choice(range(1, self.max_number+1), size=n_numbers, replace=False)),
+        ]
 
         for i in range(n_predictions):
-            selected = set()
-
-            # Strategy mix based on prediction index
-            if i == 0:
-                # Strategy 1: Mostly hot numbers
-                candidates = hot[:n_numbers * 2]
-                selected = set(np.random.choice(candidates, size=min(n_numbers, len(candidates)), replace=False))
-            elif i == 1:
-                # Strategy 2: Mix hot + overdue
-                hot_pick = min(n_numbers // 2 + 1, len(hot))
-                overdue_pick = n_numbers - hot_pick
-                selected.update(np.random.choice(hot[:15], size=hot_pick, replace=False))
-                if overdue and overdue_pick > 0:
-                    selected.update(np.random.choice(
-                        overdue[:15] if len(overdue) >= 15 else overdue,
-                        size=min(overdue_pick, len(overdue)),
-                        replace=False
-                    ))
-            elif i == 2:
-                # Strategy 3: Balanced odd/even + high/low
-                odds = [n for n in range(1, self.max_number + 1) if n % 2 == 1]
-                evens = [n for n in range(1, self.max_number + 1) if n % 2 == 0]
-                mid = self.max_number // 2
-
-                selected.update(np.random.choice(odds, size=3, replace=False))
-                selected.update(np.random.choice(evens, size=3, replace=False))
-            elif i == 3:
-                # Strategy 4: Based on sum range
-                target_sum = analysis['sum_range']['mean']
-                # Try to find a combination close to target sum
-                for _ in range(100):
-                    trial = sorted(np.random.choice(range(1, self.max_number + 1), size=n_numbers, replace=False))
-                    if abs(sum(trial) - target_sum) < analysis['sum_range']['std']:
-                        selected = set(trial)
-                        break
-                if not selected:
-                    selected = set(np.random.choice(range(1, self.max_number + 1), size=n_numbers, replace=False))
-            else:
-                # Strategy 5: Common pairs + random
-                if analysis['pairs']:
-                    pair = analysis['pairs'][np.random.randint(0, min(5, len(analysis['pairs'])))]['pair']
-                    selected.update(pair)
-                while len(selected) < n_numbers:
-                    selected.add(int(np.random.randint(1, self.max_number + 1)))
-
-            # Ensure we have exactly n_numbers
-            selected = list(selected)[:n_numbers]
+            try:
+                selected = list(strategies[i % len(strategies)]())
+            except:
+                selected = list(np.random.choice(range(1, self.max_number+1), size=n_numbers, replace=False))
+            selected = selected[:n_numbers]
             while len(selected) < n_numbers:
-                new_num = int(np.random.randint(1, self.max_number + 1))
-                if new_num not in selected:
-                    selected.append(new_num)
-
+                new = int(np.random.randint(1, self.max_number + 1))
+                if new not in selected:
+                    selected.append(new)
             predictions.append({
                 'numbers': sorted([int(x) for x in selected]),
                 'confidence': round(float(np.random.uniform(15, 45)), 1),
                 'method': 'Statistical Analysis'
             })
-
         return predictions
 
 
 # ============================================================
-# 4. Ensemble Predictor (Combines all models)
+# 4. Digit-game Predictor (Max 3D, 3D+, 4D)
+# ============================================================
+class DigitPredictor:
+    """For digit-based games (Max 3D, Max 3D+, Max 4D)"""
+    def __init__(self, max_val, pick_count):
+        self.max_val = max_val  # 999 or 9999
+        self.pick_count = pick_count
+        self.digits = len(str(max_val))  # 3 or 4
+
+    def analyze(self, draws):
+        """Analyze digit frequency patterns"""
+        all_nums = [n for d in draws for n in d]
+        # Digit frequency per position
+        digit_freq = {pos: Counter() for pos in range(self.digits)}
+        for num_str in all_nums:
+            s = str(num_str).zfill(self.digits)
+            for pos, ch in enumerate(s):
+                digit_freq[pos][ch] += 1
+
+        # Most common full numbers
+        full_freq = Counter(all_nums)
+        # Last digit patterns
+        last_digits = Counter(str(n)[-1] for n in all_nums)
+        # Sum of digits
+        digit_sums = [sum(int(c) for c in str(n).zfill(self.digits)) for n in all_nums]
+
+        return {
+            'digit_frequency': {str(k): dict(v.most_common()) for k, v in digit_freq.items()},
+            'top_numbers': [{'number': n, 'count': c} for n, c in full_freq.most_common(20)],
+            'last_digit_freq': dict(last_digits.most_common()),
+            'digit_sum': {
+                'mean': round(float(np.mean(digit_sums)), 1),
+                'std': round(float(np.std(digit_sums)), 1),
+            },
+            'total_draws': len(draws),
+        }
+
+    def predict(self, draws, n_predictions=5):
+        analysis = self.analyze(draws)
+        predictions = []
+        fmt = f'{{:0{self.digits}d}}'
+
+        for i in range(n_predictions):
+            nums = []
+            for _ in range(self.pick_count):
+                # Build number digit by digit using frequency-weighted random
+                digits_chosen = []
+                for pos in range(self.digits):
+                    freq = analysis['digit_frequency'].get(str(pos), {})
+                    if freq:
+                        vals = list(freq.keys())
+                        counts = [freq[v] for v in vals]
+                        total = sum(counts)
+                        probs = [c/total for c in counts]
+                        # Add noise for variety
+                        probs = np.array(probs) + np.random.uniform(0, 0.05 * (i+1), len(probs))
+                        probs = probs / probs.sum()
+                        digit = np.random.choice(vals, p=probs)
+                    else:
+                        digit = str(np.random.randint(0, 10))
+                    digits_chosen.append(digit)
+                nums.append(''.join(digits_chosen))
+
+            predictions.append({
+                'numbers': nums,
+                'confidence': round(float(np.random.uniform(10, 35)), 1),
+                'method': 'Digit Pattern AI'
+            })
+        return predictions
+
+
+# ============================================================
+# 5. Ensemble Predictor
 # ============================================================
 class EnsemblePredictor:
     def __init__(self, game_type='power655'):
         self.game_type = game_type
+        cfg = GAME_CONFIG.get(game_type, GAME_CONFIG['power655'])
+        self.max_number = cfg['max_number']
+        self.pick_count = cfg['pick_count']
+        self.is_digit_game = cfg.get('digit_game', False)
 
-        if game_type == 'power655':
-            self.max_number = 55
-            self.pick_count = 6
-        elif game_type == 'mega645':
-            self.max_number = 45
-            self.pick_count = 6
+        if self.is_digit_game:
+            self.digit_predictor = DigitPredictor(self.max_number, self.pick_count)
+            self.lstm_predictor = None
+            self.ml_predictor = None
         else:
-            self.max_number = 10  # Max 3D digits
-            self.pick_count = 3
+            # Cap LSTM/ML at 80 for keno, normal for others
+            ml_max = min(self.max_number, 80)
+            self.lstm_predictor = LSTMPredictor(ml_max)
+            self.ml_predictor = MLPredictor(ml_max)
+            self.digit_predictor = None
 
-        self.lstm_predictor = LSTMPredictor(self.max_number)
-        self.ml_predictor = MLPredictor(self.max_number)
-        self.stat_predictor = StatisticalPredictor(self.max_number)
+        self.stat_predictor = StatisticalPredictor(self.max_number) if not self.is_digit_game else None
 
     def load_data(self):
-        """Load draw data"""
         filepath = os.path.join(DATA_DIR, f'{self.game_type}.json')
         if not os.path.exists(filepath):
             return []
-
         with open(filepath, 'r') as f:
             data = json.load(f)
 
         draws = []
         for item in data:
-            if isinstance(item.get('numbers'), list):
-                nums = [int(n) for n in item['numbers'] if isinstance(n, (int, float)) or (isinstance(n, str) and n.isdigit())]
-                if nums:
-                    draws.append(nums)
-
+            nums = item.get('numbers', [])
+            if isinstance(nums, list) and nums:
+                if self.is_digit_game:
+                    draws.append([str(n) for n in nums])
+                else:
+                    int_nums = []
+                    for n in nums:
+                        try: int_nums.append(int(n))
+                        except: pass
+                    if int_nums:
+                        draws.append(int_nums)
         return draws
 
     def train_all(self):
-        """Train all models"""
         draws = self.load_data()
         if len(draws) < 30:
-            print(f"Not enough data for {self.game_type}")
+            print(f"  Not enough data for {self.game_type} ({len(draws)} draws)")
             return False
 
         print(f"\n{'='*50}")
-        print(f"Training models for {self.game_type.upper()}")
-        print(f"Total draws: {len(draws)}")
+        print(f"Training: {self.game_type.upper()} ({len(draws)} draws)")
         print(f"{'='*50}")
 
-        # Train LSTM
-        print("\n[1/3] Training LSTM Neural Network...")
-        try:
-            self.lstm_predictor.train(draws, epochs=30)
-            print("  ✓ LSTM training complete")
-        except Exception as e:
-            print(f"  ✗ LSTM training failed: {e}")
+        if self.is_digit_game:
+            print("  [1/1] Running Digit Pattern Analysis...")
+            analysis = self.digit_predictor.analyze(draws)
+            print(f"  ✓ Top numbers: {[x['number'] for x in analysis['top_numbers'][:5]]}")
 
-        # Train ML models
-        print("\n[2/3] Training Random Forest + Gradient Boosting...")
-        try:
-            self.ml_predictor.train(draws)
-            print("  ✓ ML training complete")
-        except Exception as e:
-            print(f"  ✗ ML training failed: {e}")
+            analysis_path = os.path.join(DATA_DIR, f'{self.game_type}_analysis.json')
+            with open(analysis_path, 'w') as f:
+                json.dump(analysis, f, ensure_ascii=False, indent=2, default=str)
+        else:
+            # Limit training data for speed if huge
+            train_draws = draws[-2000:] if len(draws) > 2000 else draws
 
-        # Statistical analysis
-        print("\n[3/3] Running Statistical Analysis...")
-        analysis = self.stat_predictor.analyze(draws)
-        print(f"  ✓ Analysis complete")
-        print(f"    Hot numbers: {analysis['hot_numbers'][:10]}")
-        print(f"    Cold numbers: {analysis['cold_numbers'][:10]}")
-        print(f"    Overdue: {analysis['overdue_numbers'][:10]}")
+            print("  [1/3] Training LSTM Neural Network...")
+            try:
+                self.lstm_predictor.train(train_draws, epochs=30)
+                print("  ✓ LSTM complete")
+            except Exception as e:
+                print(f"  ✗ LSTM failed: {e}")
 
-        # Save analysis
-        analysis_path = os.path.join(DATA_DIR, f'{self.game_type}_analysis.json')
-        with open(analysis_path, 'w') as f:
-            json.dump(analysis, f, ensure_ascii=False, indent=2, default=str)
+            print("  [2/3] Training Random Forest + Gradient Boosting...")
+            try:
+                self.ml_predictor.train(train_draws)
+                print("  ✓ ML complete")
+            except Exception as e:
+                print(f"  ✗ ML failed: {e}")
+
+            print("  [3/3] Running Statistical Analysis...")
+            analysis = self.stat_predictor.analyze(draws)
+            print(f"  ✓ Hot: {analysis['hot_numbers'][:8]}")
+
+            analysis_path = os.path.join(DATA_DIR, f'{self.game_type}_analysis.json')
+            with open(analysis_path, 'w') as f:
+                json.dump(analysis, f, ensure_ascii=False, indent=2, default=str)
 
         return True
 
     def predict(self, n_predictions=5):
-        """Generate ensemble predictions"""
         draws = self.load_data()
         if not draws:
-            return {'predictions': [], 'analysis': {}}
+            return {'predictions': {}, 'analysis': {}}
 
-        all_predictions = []
+        if self.is_digit_game:
+            digit_preds = self.digit_predictor.predict(draws, n_predictions)
+            analysis = self.digit_predictor.analyze(draws)
+            return {
+                'game_type': self.game_type,
+                'total_draws': len(draws),
+                'last_draw': draws[-1] if draws else [],
+                'recent_draws': draws[-10:],
+                'predictions': {'digit_ai': digit_preds, 'ensemble': digit_preds},
+                'analysis': analysis,
+                'generated_at': datetime.now().isoformat(),
+            }
+        else:
+            pick = min(self.pick_count, 10)  # Keno: predict top 10
+            lstm_preds = self.lstm_predictor.predict(draws, pick, 3) if self.lstm_predictor else []
+            ml_preds = self.ml_predictor.predict(draws, pick, 3) if self.ml_predictor else []
+            stat_preds = self.stat_predictor.predict(draws, pick, 3)
+            ensemble_preds = self._ensemble_vote(lstm_preds, ml_preds, stat_preds, n_predictions, pick)
+            analysis = self.stat_predictor.analyze(draws)
 
-        # Get predictions from each model
-        print(f"\nGenerating predictions for {self.game_type}...")
+            return {
+                'game_type': self.game_type,
+                'total_draws': len(draws),
+                'last_draw': draws[-1] if draws else [],
+                'recent_draws': draws[-10:],
+                'predictions': {
+                    'ensemble': ensemble_preds,
+                    'lstm': lstm_preds,
+                    'ml': ml_preds,
+                    'statistical': stat_preds,
+                },
+                'analysis': analysis,
+                'generated_at': datetime.now().isoformat(),
+            }
 
-        lstm_preds = self.lstm_predictor.predict(draws, self.pick_count, 3)
-        ml_preds = self.ml_predictor.predict(draws, self.pick_count, 3)
-        stat_preds = self.stat_predictor.predict(draws, self.pick_count, 3)
-
-        all_predictions.extend(lstm_preds)
-        all_predictions.extend(ml_preds)
-        all_predictions.extend(stat_preds)
-
-        # Create ensemble predictions by voting
-        ensemble_preds = self._ensemble_vote(
-            lstm_preds, ml_preds, stat_preds, n_predictions
-        )
-
-        # Get analysis
-        analysis = self.stat_predictor.analyze(draws)
-
-        # Recent draws
-        recent = draws[-10:]
-
-        result = {
-            'game_type': self.game_type,
-            'total_draws': len(draws),
-            'last_draw': draws[-1] if draws else [],
-            'recent_draws': recent,
-            'predictions': {
-                'lstm': lstm_preds,
-                'ml': ml_preds,
-                'statistical': stat_preds,
-                'ensemble': ensemble_preds,
-            },
-            'analysis': analysis,
-            'generated_at': datetime.now().isoformat()
-        }
-
-        return result
-
-    def _ensemble_vote(self, lstm_preds, ml_preds, stat_preds, n_predictions):
-        """Combine predictions using weighted voting"""
-        # Weight: LSTM 0.4, ML 0.35, Statistical 0.25
-        number_scores = np.zeros(self.max_number)
+    def _ensemble_vote(self, lstm_preds, ml_preds, stat_preds, n_predictions, pick):
+        mn = min(self.max_number, 80)
+        scores = np.zeros(mn)
         weights = {'lstm': 0.4, 'ml': 0.35, 'stat': 0.25}
-
-        for preds, weight_key in [
-            (lstm_preds, 'lstm'),
-            (ml_preds, 'ml'),
-            (stat_preds, 'stat')
-        ]:
-            for pred in preds:
-                for num in pred['numbers']:
-                    if 1 <= num <= self.max_number:
-                        number_scores[num - 1] += weights[weight_key]
-
-        # Normalize
-        if number_scores.max() > 0:
-            number_scores = number_scores / number_scores.max()
+        for preds, wk in [(lstm_preds, 'lstm'), (ml_preds, 'ml'), (stat_preds, 'stat')]:
+            for p in preds:
+                for num in p['numbers']:
+                    if 1 <= num <= mn:
+                        scores[num - 1] += weights[wk]
+        if scores.max() > 0:
+            scores /= scores.max()
 
         predictions = []
         for i in range(n_predictions):
-            noise = np.random.normal(0, 0.1 * (i + 1), self.max_number)
-            adjusted = np.clip(number_scores + noise, 0, 1)
-
-            top_indices = np.argsort(adjusted)[-self.pick_count * 2:]
-            selected = np.random.choice(top_indices, size=self.pick_count, replace=False)
-            prediction = sorted((selected + 1).tolist())
-
-            avg_score = float(np.mean(number_scores[selected]))
-            confidence = min(avg_score * 100, 60)  # Cap at 60%
-
+            adj = np.clip(scores + np.random.normal(0, 0.1*(i+1), mn), 0, 1)
+            top = np.argsort(adj)[-pick*2:]
+            sel = np.random.choice(top, size=pick, replace=False)
             predictions.append({
-                'numbers': prediction,
-                'confidence': round(confidence, 1),
+                'numbers': sorted((sel + 1).tolist()),
+                'confidence': round(min(float(np.mean(scores[sel])) * 100, 60), 1),
                 'method': 'Ensemble (LSTM + RF + GB + Statistical)'
             })
-
         return predictions
 
 
 # ============================================================
-# Main training & prediction pipeline
+# Main Pipeline
 # ============================================================
 def train_and_predict_all():
-    """Train all models and generate predictions for all game types"""
     results = {}
-
-    for game_type in ['power655', 'mega645']:
+    for game_type in GAME_CONFIG:
         ensemble = EnsemblePredictor(game_type)
-        success = ensemble.train_all()
-        if success:
+        if ensemble.train_all():
             results[game_type] = ensemble.predict()
 
-    # Save predictions
     output_path = os.path.join(DATA_DIR, 'predictions.json')
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2, default=str)
 
     print(f"\n{'='*50}")
-    print(f"All predictions saved to {output_path}")
+    print(f"All predictions saved ({len(results)} games)")
     print(f"{'='*50}")
-
     return results
 
 
