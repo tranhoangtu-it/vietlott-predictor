@@ -1,0 +1,22 @@
+# Build output
+
+# Data (generated during build)
+data/
+
+# Models (generated during build)
+models/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
