@@ -72,9 +72,12 @@ function initGameSelect() {
 }
 
 function initButtons() {
-    document.getElementById('btnRefreshPred').addEventListener('click', () => { predictionsData = null; loadDashboard(); });
-    document.getElementById('btnPrevPage').addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadHistory(); } });
-    document.getElementById('btnNextPage').addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; loadHistory(); } });
+    const btnRefresh = document.getElementById('btnRefreshPred');
+    const btnPrev = document.getElementById('btnPrevPage');
+    const btnNext = document.getElementById('btnNextPage');
+    if (btnRefresh) btnRefresh.addEventListener('click', () => { predictionsData = null; loadDashboard(); });
+    if (btnPrev) btnPrev.addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadHistory(); } });
+    if (btnNext) btnNext.addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; loadHistory(); } });
 }
 
 async function fetchJSON(url) {
@@ -369,12 +372,13 @@ function renderOverdueNumbers(a) {
 // SIMULATOR
 // ============================================
 function initSimulator() {
-    document.getElementById('btnSimRandom').addEventListener('click', simRandom);
-    document.getElementById('btnSimAI').addEventListener('click', simUseAI);
-    document.getElementById('btnSimClear').addEventListener('click', simClear);
-    document.getElementById('btnSimDraw').addEventListener('click', () => simDraw(1));
-    document.getElementById('btnSimAuto').addEventListener('click', () => simDraw(100));
-    document.getElementById('btnSimResetStats').addEventListener('click', simResetStats);
+    const bind = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    bind('btnSimRandom', simRandom);
+    bind('btnSimAI', simUseAI);
+    bind('btnSimClear', simClear);
+    bind('btnSimDraw', () => simDraw(1));
+    bind('btnSimAuto', () => simDraw(100));
+    bind('btnSimResetStats', simResetStats);
 }
 
 function setupSimulator() {
