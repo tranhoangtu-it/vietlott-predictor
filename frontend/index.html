@@ -6,25 +6,31 @@
     <title>Vietlott AI Predictor</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <header class="header">
         <div class="container">
             <div class="logo"><i class="fas fa-brain"></i> <span>Vietlott <strong>AI</strong></span></div>
-            <nav class="nav">
+            <nav class="nav" role="navigation" aria-label="Menu chính">
                 <a href="#" class="nav-link active" data-page="dashboard"><i class="fas fa-chart-line"></i> Dashboard</a>
                 <a href="#" class="nav-link" data-page="predictions"><i class="fas fa-magic"></i> Dự đoán</a>
                 <a href="#" class="nav-link" data-page="history"><i class="fas fa-history"></i> Lịch sử</a>
                 <a href="#" class="nav-link" data-page="analysis"><i class="fas fa-chart-bar"></i> Phân tích</a>
                 <a href="#" class="nav-link" data-page="simulator"><i class="fas fa-gamepad"></i> Giả lập</a>
+                <a href="#" class="nav-link" data-page="autoplay"><i class="fas fa-robot"></i> AI Chơi</a>
             </nav>
             <div class="header-actions">
-                <select id="gameSelect" class="game-select">
+                <select id="gameSelect" class="game-select" aria-label="Chọn loại xổ số">
                     <option value="power655">Power 6/55</option>
                     <option value="mega645">Mega 6/45</option>
                     <option value="keno">Keno</option>
                     <option value="max3d">Max 3D</option>
                     <option value="max3dplus">Max 3D+</option>
+                    <option value="bingo18">Bingo 18</option>
+                    <option value="power535">Power 5/35</option>
                 </select>
             </div>
         </div>
@@ -36,9 +42,9 @@
             <div class="container">
                 <div class="stats-grid">
                     <div class="stat-card"><div class="stat-icon bg-blue"><i class="fas fa-database"></i></div><div class="stat-info"><span class="stat-label">Tổng kỳ quay</span><span class="stat-value" id="totalDraws">--</span></div></div>
-                    <div class="stat-card"><div class="stat-icon bg-green"><i class="fas fa-brain"></i></div><div class="stat-info"><span class="stat-label">Game types</span><span class="stat-value">5</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-green"><i class="fas fa-brain"></i></div><div class="stat-info"><span class="stat-label">Game types</span><span class="stat-value" id="gameCount">7</span></div></div>
                     <div class="stat-card"><div class="stat-icon bg-purple"><i class="fas fa-bullseye"></i></div><div class="stat-info"><span class="stat-label">Độ tin cậy TB</span><span class="stat-value" id="avgConfidence">--</span></div></div>
-                    <div class="stat-card"><div class="stat-icon bg-orange"><i class="fas fa-clock"></i></div><div class="stat-info"><span class="stat-label">Cập nhật</span><span class="stat-value" id="lastUpdate">--</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-orange"><i class="fas fa-calendar-alt"></i></div><div class="stat-info"><span class="stat-label">Kỳ tiếp theo</span><span class="stat-value" id="nextDraw" style="font-size:0.8rem">--</span></div></div>
                 </div>
                 <div class="card"><div class="card-header"><h2><i class="fas fa-star"></i> Dự đoán hàng đầu</h2><button class="btn btn-sm btn-accent" id="btnRefreshPred"><i class="fas fa-sync-alt"></i> Làm mới</button></div><div class="card-body"><div id="topPrediction" class="top-prediction"><div class="loading"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div></div></div></div>
                 <div class="grid-2">
@@ -153,6 +159,53 @@
                 </div>
             </div>
         </section>
+
+        <!-- AI Auto-Play -->
+        <section id="page-autoplay" class="page">
+            <div class="container">
+                <!-- Info Banner -->
+                <div class="card ap-banner">
+                    <div class="card-body" style="text-align:center;padding:24px">
+                        <h2 style="font-size:1.5rem;margin-bottom:8px"><i class="fas fa-robot"></i> AI Tự Chơi</h2>
+                        <p style="color:var(--text-muted)">AI sử dụng phân tích thống kê (số nóng/lạnh/quá hạn) để tự mua vé cho mỗi kỳ. Kết quả dựa trên dữ liệu thực.</p>
+                    </div>
+                </div>
+
+                <!-- Summary Stats -->
+                <div class="stats-grid">
+                    <div class="stat-card"><div class="stat-icon bg-blue"><i class="fas fa-play-circle"></i></div><div class="stat-info"><span class="stat-label">Tổng lượt chơi</span><span class="stat-value" id="apTotalPlays">--</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-orange"><i class="fas fa-money-bill-wave"></i></div><div class="stat-info"><span class="stat-label">Tổng chi</span><span class="stat-value" id="apTotalSpent">--</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-green"><i class="fas fa-trophy"></i></div><div class="stat-info"><span class="stat-label">Tổng thắng</span><span class="stat-value" id="apTotalWon">--</span></div></div>
+                    <div class="stat-card"><div class="stat-icon bg-purple"><i class="fas fa-chart-line"></i></div><div class="stat-info"><span class="stat-label">Lợi nhuận</span><span class="stat-value" id="apProfit">--</span></div></div>
+                </div>
+
+                <!-- Extra stats -->
+                <div class="card">
+                    <div class="card-header"><h2><i class="fas fa-chart-bar"></i> Tổng quan AI</h2></div>
+                    <div class="card-body">
+                        <div class="sim-stats-grid">
+                            <div class="sim-stat"><span class="sim-stat-val" id="apROI">--</span><span class="sim-stat-label">ROI (%)</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="apWinRate">--</span><span class="sim-stat-label">Tỷ lệ thắng</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="apBestMatch">--</span><span class="sim-stat-label">Trùng cao nhất</span></div>
+                            <div class="sim-stat"><span class="sim-stat-val" id="apStrategy">--</span><span class="sim-stat-label">Chiến thuật</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Play History Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2><i class="fas fa-list"></i> Lịch sử AI chơi</h2>
+                        <div class="pagination-controls">
+                            <button class="btn btn-sm" id="btnApPrev"><i class="fas fa-chevron-left"></i></button>
+                            <span id="apPageInfo">1/1</span>
+                            <button class="btn btn-sm" id="btnApNext"><i class="fas fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                    <div class="card-body"><div id="autoplayTable"><div class="loading"><i class="fas fa-spinner fa-spin"></i> Đang tải...</div></div></div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <div id="toast" class="toast"></div>
@@ -165,6 +218,7 @@
         </div>
     </footer>
 
+    <script src="ai-autoplay-tab.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

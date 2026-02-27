@@ -5,9 +5,15 @@ on:
   push:
     branches: [main]
 
-  # Run daily at 7:00 AM Vietnam time (00:00 UTC) to update predictions
+  # Run 6x/day every 3h covering 6AM-9PM Vietnam (UTC+7)
+  # Cost: 6 runs × ~3min × 30 days = ~540 min/month (within 2000 free tier)
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 23 * * *'   # 06:00 VN - morning Keno/Bingo session start
+    - cron: '0 2 * * *'    # 09:00 VN - mid-morning update
+    - cron: '0 5 * * *'    # 12:00 VN - noon update
+    - cron: '0 8 * * *'    # 15:00 VN - afternoon update
+    - cron: '0 11 * * *'   # 18:00 VN - before major draws (Power, Mega, Max 3D)
+    - cron: '0 14 * * *'   # 21:00 VN - after major draws
 
   # Allow manual trigger
   workflow_dispatch:

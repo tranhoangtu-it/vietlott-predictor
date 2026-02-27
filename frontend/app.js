@@ -1,6 +1,7 @@
 /**
  * Vietlott AI Predictor - Full Frontend with Simulator
  * Static mode: loads pre-generated JSON data
+ * LOAD ORDER: ai-autoplay-tab.js must load BEFORE this file (provides esc, loadAutoplay, etc.)
  */
 const DATA_BASE = './data';
 let currentGame = 'power655';
@@ -18,6 +19,7 @@ let simStats = { plays: 0, spent: 0, won: 0, bestMatch: 0, jackpots: 0 };
 const TICKET_PRICE = {
     power655: 10000, mega645: 10000, keno: 10000,
     max3d: 10000, max3dplus: 10000,
+    bingo18: 10000, power535: 10000,
 };
 
 const PRIZE_TABLE = {
@@ -26,6 +28,8 @@ const PRIZE_TABLE = {
     keno:     { 10: 2_000_000_000, 9: 500_000_000, 8: 50_000_000, 7: 5_000_000, 6: 500_000, 5: 50_000, 4: 10_000 },
     max3d:    { 3: 1_000_000_000, 2: 10_000_000, 1: 100_000 },
     max3dplus:{ 3: 1_000_000_000, 2: 10_000_000, 1: 100_000 },
+    bingo18:  { 3: 2_000_000_000, 2: 500_000, 1: 20_000 },
+    power535: { 6: 30_000_000_000, 5: 40_000_000, 4: 500_000, 3: 50_000 },
 };
 
 // ============================================
@@ -56,7 +60,7 @@ function switchPage(page) {
     document.getElementById(`page-${page}`).classList.add('active');
     ({ dashboard: loadDashboard, predictions: loadPredictions,
        history: loadHistory, analysis: loadAnalysis,
-       simulator: setupSimulator })[page]?.();
+       simulator: setupSimulator, autoplay: loadAutoplay })[page]?.();
 }
 
 function initGameSelect() {
@@ -66,6 +70,8 @@ function initGameSelect() {
         predictionsData = null;
         analysisData = null;
         simSelected = [];
+        autoplayData = null;
+        apCurrentPage = 1;
         const activePage = document.querySelector('.nav-link.active').dataset.page;
         switchPage(activePage);
     });
@@ -78,6 +84,7 @@ function initButtons() {
     if (btnRefresh) btnRefresh.addEventListener('click', () => { predictionsData = null; loadDashboard(); });
     if (btnPrev) btnPrev.addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadHistory(); } });
     if (btnNext) btnNext.addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; loadHistory(); } });
+    initAutoplayPagination();
 }
 
 async function fetchJSON(url) {
@@ -142,12 +149,24 @@ async function loadDashboard() {
 
 function renderDashboard(data) {
     document.getElementById('totalDraws').textContent = data.total_draws?.toLocaleString() || '--';
-    document.getElementById('lastUpdate').textContent = data.generated_at ? new Date(data.generated_at).toLocaleString('vi-VN') : '--';
+    if (gameConfig) document.getElementById('gameCount').textContent = Object.keys(gameConfig).length;
+    // Show next draw info
+    if (gameConfig?.[currentGame]?.schedule) {
+        document.getElementById('nextDraw').textContent = calculateNextDraw(gameConfig[currentGame].schedule);
+    }
 
     const allP = Object.values(data.predictions || {}).flat();
     if (allP.length) {
         const avg = allP.reduce((s, p) => s + (p.confidence || 0), 0) / allP.length;
         document.getElementById('avgConfidence').textContent = avg.toFixed(1) + '%';
+    }
+    // Show limited data warning banner
+    const bannerEl = document.getElementById('topPrediction');
+    if (data.limited_data) {
+        bannerEl.insertAdjacentHTML('afterbegin',
+            `<div style="background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#f59e0b;font-size:0.9rem">
+                <i class="fas fa-exclamation-triangle"></i> Dữ liệu hạn chế (${data.total_draws} kỳ) — dự đoán mang tính ngẫu nhiên, chưa đủ dữ liệu để huấn luyện AI.
+            </div>`);
     }
     renderTopPredictions(data.predictions);
     renderRecentDraws(data.recent_draws || []);
@@ -180,7 +199,7 @@ function renderTopPredictions(predictions) {
             <span class="pred-method"><i class="${s.icon}"></i> ${s.label}</span>
             <span class="pred-confidence ${cc}">${best.confidence?.toFixed(1) || '?'}%</span>
             </div><div class="pred-numbers">
-            ${best.numbers.map(n => `<span class="ball">${n}</span>`).join('')}
+            ${best.numbers.map(n => `<span class="ball">${esc(n)}</span>`).join('')}
             </div></div>`;
     });
     c.innerHTML = html || '<p style="text-align:center;color:var(--text-muted)">Chưa có</p>';
@@ -189,11 +208,11 @@ function renderTopPredictions(predictions) {
 function renderRecentDraws(draws) {
     const c = document.getElementById('recentDraws');
     if (!draws?.length) { c.innerHTML = '<p style="color:var(--text-muted)">Không có</p>'; return; }
-    let html = '<table style="width:100%;border-collapse:collapse"><tr><th style="text-align:left;padding:8px;color:var(--text-muted);font-size:0.8rem">#</th><th style="text-align:left;padding:8px;color:var(--text-muted);font-size:0.8rem">Kết quả</th></tr>';
+    let html = '<div class="history-table"><table><thead><tr><th>#</th><th>Kết quả</th></tr></thead><tbody>';
     draws.slice(0, 8).reverse().forEach((d, i) => {
-        html += `<tr><td style="padding:8px;color:var(--text-muted)">${draws.length-i}</td><td style="padding:8px">${d.map(n=>`<span class="ball ball-sm">${n}</span>`).join(' ')}</td></tr>`;
+        html += `<tr><td style="color:var(--text-muted);font-family:'JetBrains Mono',monospace">${draws.length - i}</td><td>${d.map(n => `<span class="ball ball-sm">${esc(n)}</span>`).join(' ')}</td></tr>`;
     });
-    c.innerHTML = html + '</table>';
+    c.innerHTML = html + '</tbody></table></div>';
 }
 
 function renderHotCold(a) {
@@ -262,7 +281,7 @@ function renderAllPredictions(preds) {
         const cfg = mcfg[m] || { tag: '', label: m };
         ps.forEach((p, i) => {
             const cc = p.confidence > 40 ? 'confidence-high' : p.confidence > 25 ? 'confidence-mid' : 'confidence-low';
-            html += `<div class="prediction-card"><span class="method-tag ${cfg.tag}">${cfg.label} #${i+1}</span><div style="margin-bottom:8px"><span class="pred-confidence ${cc}" style="font-size:0.8rem">${p.confidence?.toFixed(1)||'?'}%</span></div><div class="pred-numbers">${p.numbers.map(n=>`<span class="ball">${n}</span>`).join('')}</div></div>`;
+            html += `<div class="prediction-card"><span class="method-tag ${cfg.tag}">${cfg.label} #${i+1}</span><div style="margin-bottom:8px"><span class="pred-confidence ${cc}" style="font-size:0.8rem">${p.confidence?.toFixed(1)||'?'}%</span></div><div class="pred-numbers">${p.numbers.map(n=>`<span class="ball">${esc(n)}</span>`).join('')}</div></div>`;
         });
     });
     c.innerHTML = html || '<p style="text-align:center;color:var(--text-muted)">Chưa có</p>';
@@ -296,14 +315,24 @@ async function loadHistory() {
 
 function renderHistory(draws) {
     const c = document.getElementById('historyTable');
-    const hasPower = currentGame === 'power655';
-    let html = `<table><thead><tr><th>Kỳ</th><th>Ngày</th><th>Kết quả</th>${hasPower?'<th>Power</th>':''}<th>Tổng</th></tr></thead><tbody>`;
+    const hasPower = ['power655', 'power535'].includes(currentGame);
+    const isBingo = currentGame === 'bingo18';
+    const extraHeaders = hasPower ? '<th>Power</th>' : '';
+    const bingoHeaders = isBingo ? '<th>Lớn/Nhỏ</th>' : '';
+    let html = `<div class="history-table"><table><thead><tr><th>Kỳ</th><th>Ngày</th><th>Kết quả</th>${extraHeaders}${bingoHeaders}<th>Tổng</th></tr></thead><tbody>`;
     draws.forEach(d => {
         const nums = d.numbers || [];
-        const sum = nums.reduce((s,n) => s + (typeof n==='number' ? n : parseInt(n)||0), 0);
-        html += `<tr><td style="font-weight:600;color:var(--primary)">${d.draw_id||'--'}</td><td style="color:var(--text-muted);font-size:0.9rem">${d.date||'--'}</td><td>${nums.map(n=>`<span class="ball ball-sm">${n}</span>`).join(' ')}</td>${hasPower?`<td><span class="ball ball-sm power">${d.power||'--'}</span></td>`:''}<td style="font-weight:600">${sum||'--'}</td></tr>`;
+        const sum = d.total || nums.reduce((s, n) => s + (typeof n === 'number' ? n : parseInt(n) || 0), 0);
+        html += `<tr>
+            <td style="font-weight:600;color:var(--primary-light);font-family:'JetBrains Mono',monospace">${esc(d.draw_id) || '--'}</td>
+            <td style="color:var(--text-muted);font-size:0.9rem">${esc(d.date) || '--'}</td>
+            <td>${nums.map(n => `<span class="ball ball-sm">${esc(n)}</span>`).join(' ')}</td>
+            ${hasPower ? `<td><span class="ball ball-sm power">${esc(d.power) || '--'}</span></td>` : ''}
+            ${isBingo ? `<td style="font-weight:500">${esc(d.large_small) || '--'}</td>` : ''}
+            <td style="font-weight:600;font-family:'JetBrains Mono',monospace">${sum || '--'}</td>
+        </tr>`;
     });
-    c.innerHTML = html + '</tbody></table>';
+    c.innerHTML = html + '</tbody></table></div>';
 }
 
 // ============================================
@@ -535,14 +564,15 @@ function simDraw(rounds) {
             drawnNums = pool.slice(0, 20).sort((a, b) => a - b);
             lastMatch = myNums.filter(n => drawnNums.includes(n)).length;
         } else {
-            // Power 6/55 or Mega 6/45
+            // Standard number games (Power 6/55, Mega 6/45, Bingo 18, Power 5/35)
             const maxN = info.max_number || 55;
+            const drawCount = info.pick_count || 6;
             const pool = Array.from({ length: maxN }, (_, i) => i + 1);
             for (let i = pool.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [pool[i], pool[j]] = [pool[j], pool[i]];
             }
-            drawnNums = pool.slice(0, 6).sort((a, b) => a - b);
+            drawnNums = pool.slice(0, drawCount).sort((a, b) => a - b);
             lastMatch = myNums.filter(n => drawnNums.includes(n)).length;
         }
 
@@ -573,7 +603,7 @@ function simDraw(rounds) {
     `;
 
     // Show match result
-    const pick = isDigitGame() ? myNums.length : (currentGame === 'keno' ? 10 : 6);
+    const pick = isDigitGame() ? myNums.length : (currentGame === 'keno' ? 10 : (info.pick_count || 6));
     const matchPct = pick > 0 ? (lastMatch / pick * 100).toFixed(0) : 0;
     const prizeFormatted = lastPrize > 0 ? lastPrize.toLocaleString('vi-VN') + ' VNĐ' : 'Không trúng';
     const emoji = lastMatch >= pick ? '🎉🎉🎉 JACKPOT!' : lastMatch >= pick - 1 ? '🎉 Gần trúng!' : lastMatch >= 3 ? '👍 Có thưởng!' : '😢';

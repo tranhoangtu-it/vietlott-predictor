@@ -21,6 +21,8 @@ GAME_FILES = {
     'max3d':     '3d.jsonl',
     'max3dplus': '3d_pro.jsonl',
     'keno':      'keno.jsonl',
+    'bingo18':   'bingo18.jsonl',
+    'power535':  'power535.jsonl',
 }
 
 GAME_CONFIG = {
@@ -59,6 +61,31 @@ GAME_CONFIG = {
         'has_power': False,
         'digit_game': False,
     },
+    'bingo18': {
+        'name': 'Bingo 18',
+        'max_number': 18,
+        'pick_count': 3,
+        'has_power': False,
+        'digit_game': False,
+    },
+    'power535': {
+        'name': 'Power 5/35',
+        'max_number': 35,
+        'pick_count': 5,
+        'has_power': True,
+        'digit_game': False,
+    },
+}
+
+# Draw schedule per game (days: 0=Sun, 1=Mon ... 6=Sat, matches JS Date.getDay())
+DRAW_SCHEDULE = {
+    'power655':  {'days': [2, 4, 6],          'time': '21:00', 'frequency': 'daily'},
+    'mega645':   {'days': [1, 3, 5, 0],       'time': '21:00', 'frequency': 'daily'},
+    'max3d':     {'days': [1, 3, 5],          'time': '21:00', 'frequency': 'daily'},
+    'max3dplus': {'days': [2, 4, 6],          'time': '21:00', 'frequency': 'daily'},
+    'keno':      {'days': [0,1,2,3,4,5,6],   'time': '06:00-21:55', 'frequency': '10min'},
+    'bingo18':   {'days': [0,1,2,3,4,5,6],   'time': '06:00-21:55', 'frequency': '10min'},
+    'power535':  {'days': [0,1,2,3,4,5,6],   'time': '21:00', 'frequency': 'daily'},
 }
 
 
@@ -210,12 +237,68 @@ def parse_keno(filepath):
     return records
 
 
+def parse_bingo18(filepath):
+    """Parse Bingo 18 JSONL → our format
+    Format: {"date":"2024-12-03","id":"0083123","result":[2,6,1],"total":9,"large_small":"Nhỏ"}
+    """
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', [])
+            if len(result) < 3:
+                continue
+            records.append({
+                'draw_id': f"#{item.get('id', '?')}",
+                'date': item.get('date', ''),
+                'numbers': result[:3],
+                'total': item.get('total', sum(result[:3])),
+                'large_small': item.get('large_small', ''),
+            })
+    return records
+
+
+def parse_power535(filepath):
+    """Parse Power 5/35 JSONL → our format
+    Format: {"date":"2025-06-29","id":"00001","result":[4,11,14,22,25,4]}
+    result = [5 main numbers, power_number]
+    """
+    records = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            item = json.loads(line)
+            result = item.get('result', [])
+            if len(result) >= 6:
+                main_numbers = sorted(result[:5])
+                power = result[5]
+            elif len(result) == 5:
+                main_numbers = sorted(result)
+                power = 0
+            else:
+                continue
+            records.append({
+                'draw_id': f"#{item.get('id', '?')}",
+                'date': item.get('date', ''),
+                'numbers': main_numbers,
+                'power': power,
+            })
+    return records
+
+
 PARSERS = {
     'power655': parse_power655,
     'mega645': parse_mega645,
     'max3d': parse_max3d,
     'max3dplus': parse_max3dplus,
     'keno': parse_keno,
+    'bingo18': parse_bingo18,
+    'power535': parse_power535,
 }
 
 
@@ -273,6 +356,7 @@ def collect_all_data():
     for gt, cfg in GAME_CONFIG.items():
         config_for_frontend[gt] = {
             **cfg,
+            'schedule': DRAW_SCHEDULE.get(gt, {}),
             'total_draws': len(all_data.get(gt, [])),
         }
     save_data(config_for_frontend, 'game_config.json')

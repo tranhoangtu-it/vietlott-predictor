@@ -25,6 +25,8 @@ GAME_CONFIG = {
     'keno':      {'max_number': 80, 'pick_count': 10, 'has_power': False, 'digit_game': False},
     'max3d':     {'max_number': 999,'pick_count': 3,  'has_power': False, 'digit_game': True},
     'max3dplus': {'max_number': 999,'pick_count': 6,  'has_power': False, 'digit_game': True},
+    'bingo18':   {'max_number': 18, 'pick_count': 3,  'has_power': False, 'digit_game': False},
+    'power535':  {'max_number': 35, 'pick_count': 5,  'has_power': True,  'digit_game': False},
 }
 
 # ============================================================
@@ -207,10 +209,10 @@ class MLPredictor:
         for idx in range(self.max_number):
             if idx in self.rf_models:
                 try: rf_p[idx] = self.rf_models[idx].predict_proba(last)[0][1]
-                except: rf_p[idx] = 0.1
+                except Exception: rf_p[idx] = 0.1
             if idx in self.gb_models:
                 try: gb_p[idx] = self.gb_models[idx].predict_proba(last)[0][1]
-                except: gb_p[idx] = 0.1
+                except Exception: gb_p[idx] = 0.1
         combined = 0.6 * rf_p + 0.4 * gb_p
         predictions = []
         for i in range(n_predictions):
@@ -301,7 +303,7 @@ class StatisticalPredictor:
         for i in range(n_predictions):
             try:
                 selected = list(strategies[i % len(strategies)]())
-            except:
+            except Exception:
                 selected = list(np.random.choice(range(1, self.max_number+1), size=n_numbers, replace=False))
             selected = selected[:n_numbers]
             while len(selected) < n_numbers:
@@ -429,7 +431,7 @@ class EnsemblePredictor:
                     int_nums = []
                     for n in nums:
                         try: int_nums.append(int(n))
-                        except: pass
+                        except (ValueError, TypeError): pass
                     if int_nums:
                         draws.append(int_nums)
         return draws
@@ -437,7 +439,10 @@ class EnsemblePredictor:
     def train_all(self):
         draws = self.load_data()
         if len(draws) < 30:
-            print(f"  Not enough data for {self.game_type} ({len(draws)} draws)")
+            if len(draws) >= 1:
+                print(f"  Limited data for {self.game_type} ({len(draws)} draws) — random predictions only")
+                return 'limited'
+            print(f"  No data for {self.game_type}")
             return False
 
         print(f"\n{'='*50}")
@@ -453,8 +458,9 @@ class EnsemblePredictor:
             with open(analysis_path, 'w') as f:
                 json.dump(analysis, f, ensure_ascii=False, indent=2, default=str)
         else:
-            # Limit training data for speed if huge
-            train_draws = draws[-2000:] if len(draws) > 2000 else draws
+            # Limit training data for speed (bingo18 has 83k+ draws, use more)
+            max_train = 5000 if self.game_type == 'bingo18' else 2000
+            train_draws = draws[-max_train:] if len(draws) > max_train else draws
 
             print("  [1/3] Training LSTM Neural Network...")
             try:
@@ -480,10 +486,44 @@ class EnsemblePredictor:
 
         return True
 
-    def predict(self, n_predictions=5):
+    def predict(self, n_predictions=5, limited=False):
         draws = self.load_data()
         if not draws:
             return {'predictions': {}, 'analysis': {}}
+
+        # Limited data: random predictions with warning flag
+        if limited:
+            random_preds = []
+            for i in range(n_predictions):
+                if self.is_digit_game:
+                    nums = [str(np.random.randint(0, self.max_number + 1)).zfill(len(str(self.max_number)))
+                            for _ in range(self.pick_count)]
+                else:
+                    nums = sorted(np.random.choice(
+                        range(1, self.max_number + 1), size=self.pick_count, replace=False
+                    ).tolist())
+                pred = {
+                    'numbers': nums,
+                    'confidence': round(float(np.random.uniform(5, 15)), 1),
+                    'method': 'Random (insufficient data)'
+                }
+                random_preds.append(pred)
+
+            result = {
+                'game_type': self.game_type,
+                'total_draws': len(draws),
+                'limited_data': True,
+                'last_draw': draws[-1] if draws else [],
+                'recent_draws': draws[-10:],
+                'predictions': {'ensemble': random_preds},
+                'analysis': {},
+                'generated_at': datetime.now().isoformat(),
+            }
+            # Add power number for power games
+            cfg = GAME_CONFIG.get(self.game_type, {})
+            if cfg.get('has_power') and not limited:
+                pass  # power handled in normal flow
+            return result
 
         if self.is_digit_game:
             digit_preds = self.digit_predictor.predict(draws, n_predictions)
@@ -552,7 +592,10 @@ def train_and_predict_all():
     results = {}
     for game_type in GAME_CONFIG:
         ensemble = EnsemblePredictor(game_type)
-        if ensemble.train_all():
+        status = ensemble.train_all()
+        if status == 'limited':
+            results[game_type] = ensemble.predict(limited=True)
+        elif status:
             results[game_type] = ensemble.predict()
 
     output_path = os.path.join(DATA_DIR, 'predictions.json')
